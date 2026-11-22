@@ -3,8 +3,15 @@ require('dotenv').config();
 const express = require('express');
 const session = require('express-session');
 const path = require('path');
+const http = require('http');                  // AJOUT (Yassine)
+const { Server } = require('socket.io');       // AJOUT (Yassine)
 
 const app = express();
+
+// AJOUT (Yassine) : Socket.IO a besoin d'un serveur http
+const server = http.createServer(app);
+const io = new Server(server);
+app.set('io', io); // les routes pourront récupérer io avec req.app.get('io')
 
 // 1. Lire les données JSON et les formulaires
 app.use(express.json());
@@ -31,6 +38,11 @@ app.get('/', (req, res) => {
 // Routes de Marwa (authentification)
 const authRoutes = require('./routes/auth');
 app.use('/', authRoutes);
+
+// Routes de Yassine (vote et résultats)  → AJOUT
+const votesRoutes = require('./routes/votes');
+app.use('/api/votes', votesRoutes);
+
 // 5. Route inexistante (404)
 app.use((req, res) => {
   res.status(404).json({ message: 'Route introuvable' });
@@ -41,6 +53,10 @@ app.use((err, req, res, next) => {
   console.error(err);
   res.status(500).json({ message: 'Erreur interne du serveur' });
 });
+
+// AJOUT (Yassine) : Socket.IO (rooms) + clôture automatique des sondages
+const demarrerTempsReel = require('./realtime');
+demarrerTempsReel(io);
 
 // 7. Démarrage
 const PORT = process.env.PORT || 3000;
