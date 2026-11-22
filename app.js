@@ -28,7 +28,9 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.get('/', (req, res) => {
   res.send('Le serveur fonctionne ✅');
 });
-
+// Routes de Marwa (authentification)
+const authRoutes = require('./routes/auth');
+app.use('/', authRoutes);
 // 5. Route inexistante (404)
 app.use((req, res) => {
   res.status(404).json({ message: 'Route introuvable' });
