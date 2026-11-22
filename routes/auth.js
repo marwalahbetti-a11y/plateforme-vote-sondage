@@ -5,6 +5,9 @@ const db = require('../db');
 
 const router = express.Router();
 
+const { estConnecte, estAdmin } = require('../middleware/auth');
+
+
 // POST /register : créer un compte
 router.post('/register', async (req, res) => {
   try {
@@ -119,4 +122,21 @@ router.get('/me', (req, res) => {
   }
   res.json({ user: req.session.user });
 });
+// GET /me : qui est connecté ? (route de test)
+router.get('/me', (req, res) => {
+  if (!req.session.user) {
+    return res.status(401).json({ message: 'Non connecté' });
+  }
+  res.json({ user: req.session.user });
+});
+
+// Routes de démonstration (à supprimer plus tard)
+router.get('/test-connecte', estConnecte, (req, res) => {
+  res.json({ message: `Bonjour ${req.session.user.username}, tu es connectée` });
+});
+
+router.get('/test-admin', estAdmin, (req, res) => {
+  res.json({ message: 'Bienvenue, administrateur' });
+});
+
 module.exports = router;
