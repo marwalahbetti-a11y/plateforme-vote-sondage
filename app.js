@@ -25,20 +25,41 @@ app.use(session({
 app.use(express.static(path.join(__dirname, 'public')));
 
 // 4. Route de test
+// Pages HTML
 app.get('/', (req, res) => {
-  res.send('Le serveur fonctionne ✅');
+  res.redirect('/login');
+});
+app.get('/login', (req, res) => {
+  res.sendFile(path.join(__dirname, 'views', 'login.html'));
+});
+app.get('/register', (req, res) => {
+  res.sendFile(path.join(__dirname, 'views', 'register.html'));
+});
+app.get('/profile-page', (req, res) => {
+  if (!req.session.user) return res.redirect('/login');
+  res.sendFile(path.join(__dirname, 'views', 'profile.html'));
 });
 // Routes de Marwa (authentification)
 const authRoutes = require('./routes/auth');
 app.use('/', authRoutes);
 // 5. Route inexistante (404)
 app.use((req, res) => {
+  if (req.accepts('html') && !req.path.startsWith('/api')) {
+    return res.status(404).send('<h2>Page introuvable (404)</h2><a href="/login">Retour à la connexion</a>');
+  }
   res.status(404).json({ message: 'Route introuvable' });
 });
 
 // 6. Erreur interne (500)
 app.use((err, req, res, next) => {
   console.error(err);
+
+  if (err.code === 'ECONNREFUSED' || err.code === 'PROTOCOL_CONNECTION_LOST') {
+    return res.status(503).json({ message: 'Base de données indisponible, réessayez plus tard' });
+  }
+  if (err.code === 'ER_DUP_ENTRY') {
+    return res.status(409).json({ message: 'Cette valeur existe déjà' });
+  }
   res.status(500).json({ message: 'Erreur interne du serveur' });
 });
 

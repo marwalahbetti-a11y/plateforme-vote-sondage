@@ -1,0 +1,9 @@
+/* public/css/style.css : style commun */
+body {
+  min-height: 100vh;
+}
+
+.card {
+  border: none;
+  border-radius: 12px;
+}
