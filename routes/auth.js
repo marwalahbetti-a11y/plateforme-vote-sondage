@@ -1,142 +1,129 @@
-// routes/auth.js : inscription, connexion, déconnexion, profil (Marwa)
 const express = require('express');
 const bcrypt = require('bcrypt');
 const db = require('../db');
+const { requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
+const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-const { estConnecte, estAdmin } = require('../middleware/auth');
-
-
-// POST /register : créer un compte
+// INSCRIPTION
 router.post('/register', async (req, res) => {
   try {
     const { username, email, password } = req.body;
 
-    // 1. Champs obligatoires
     if (!username || !email || !password) {
-      return res.status(400).json({ message: 'Tous les champs sont obligatoires' });
+      return res.status(400).json({ message: 'Tous les champs sont obligatoires.' });
     }
-
-    // 2. Format de l'email
-    const emailValide = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-    if (!emailValide) {
-      return res.status(400).json({ message: "Format d'email invalide" });
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ message: 'Adresse email invalide.' });
     }
-
-    // 3. Longueur du mot de passe
     if (password.length < 6) {
-      return res.status(400).json({ message: 'Le mot de passe doit contenir au moins 6 caractères' });
+      return res.status(400).json({ message: 'Le mot de passe doit contenir au moins 6 caractères.' });
     }
 
-    // 4. Email ou username déjà utilisé ?
-    const [existants] = await db.query(
-      'SELECT id FROM users WHERE email = ? OR username = ?',
-      [email, username]
-    );
-    if (existants.length > 0) {
-      return res.status(409).json({ message: "Cet email ou ce nom d'utilisateur est déjà utilisé" });
+    const [existing] = await db.query('SELECT id FROM users WHERE email = ?', [email]);
+    if (existing.length > 0) {
+      return res.status(409).json({ message: 'Cet email est déjà utilisé.' });
     }
 
-    // 5. Hacher le mot de passe
-    const motDePasseHache = await bcrypt.hash(password, 10);
-
-    // 6. Insérer dans la base (le rôle 'user' est mis par défaut)
-    const [resultat] = await db.query(
-      'INSERT INTO users (username, email, password) VALUES (?, ?, ?)',
-      [username, email, motDePasseHache]
+    const hash = await bcrypt.hash(password, 10);
+    // le rôle est toujours 'user' à l'inscription (jamais fourni par le client)
+    await db.query(
+      'INSERT INTO users (username, email, password, role) VALUES (?, ?, ?, ?)',
+      [username.trim(), email.trim().toLowerCase(), hash, 'user']
     );
 
-    res.status(201).json({
-      message: 'Inscription réussie',
-      userId: resultat.insertId
-    });
-  } catch (erreur) {
-    console.error('Erreur register :', erreur);
-    res.status(500).json({ message: "Erreur lors de l'inscription" });
+    res.status(201).json({ message: 'Inscription réussie.' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Erreur interne du serveur.' });
   }
 });
-// POST /login : se connecter
+
+// CONNEXION
 router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    // 1. Champs obligatoires
     if (!email || !password) {
-      return res.status(400).json({ message: 'Email et mot de passe obligatoires' });
+      return res.status(400).json({ message: 'Email et mot de passe obligatoires.' });
     }
 
-    // 2. Chercher l'utilisateur
-    const [lignes] = await db.query(
-      'SELECT id, username, email, password, role FROM users WHERE email = ?',
-      [email]
-    );
+    const [rows] = await db.query('SELECT * FROM users WHERE email = ?', [email.trim().toLowerCase()]);
+    const user = rows[0];
 
-    // 3. Message volontairement identique si l'email ou le mot de passe est faux
-    if (lignes.length === 0) {
-      return res.status(401).json({ message: 'Email ou mot de passe incorrect' });
+    // même message dans les 2 cas pour ne pas révéler si l'email existe
+    if (!user || !(await bcrypt.compare(password, user.password))) {
+      return res.status(401).json({ message: 'Email ou mot de passe incorrect.' });
     }
 
-    const utilisateur = lignes[0];
-
-    // 4. Comparer avec le hash bcrypt
-    const motDePasseCorrect = await bcrypt.compare(password, utilisateur.password);
-    if (!motDePasseCorrect) {
-      return res.status(401).json({ message: 'Email ou mot de passe incorrect' });
-    }
-
-    // 5. Créer la session (on ne met JAMAIS le mot de passe dedans)
     req.session.user = {
-      id: utilisateur.id,
-      username: utilisateur.username,
-      email: utilisateur.email,
-      role: utilisateur.role
+      id: user.id,
+      username: user.username,
+      email: user.email,
+      role: user.role
     };
 
-    res.json({
-      message: 'Connexion réussie',
-      user: req.session.user
-    });
-  } catch (erreur) {
-    console.error('Erreur login :', erreur);
-    res.status(500).json({ message: 'Erreur lors de la connexion' });
+    res.json({ message: 'Connexion réussie.', user: req.session.user });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Erreur interne du serveur.' });
   }
 });
 
-// POST /logout : se déconnecter
+// DÉCONNEXION
 router.post('/logout', (req, res) => {
-  req.session.destroy((erreur) => {
-    if (erreur) {
-      console.error('Erreur logout :', erreur);
-      return res.status(500).json({ message: 'Erreur lors de la déconnexion' });
-    }
+  req.session.destroy(() => {
     res.clearCookie('connect.sid');
-    res.json({ message: 'Déconnexion réussie' });
+    res.json({ message: 'Déconnexion réussie.' });
   });
 });
 
-// GET /me : qui est connecté ? (route de test)
+// UTILISATEUR CONNECTÉ (pour recharger l'état après un refresh)
 router.get('/me', (req, res) => {
   if (!req.session.user) {
-    return res.status(401).json({ message: 'Non connecté' });
-  }
-  res.json({ user: req.session.user });
-});
-// GET /me : qui est connecté ? (route de test)
-router.get('/me', (req, res) => {
-  if (!req.session.user) {
-    return res.status(401).json({ message: 'Non connecté' });
+    return res.status(401).json({ message: 'Non connecté.' });
   }
   res.json({ user: req.session.user });
 });
 
-// Routes de démonstration (à supprimer plus tard)
-router.get('/test-connecte', estConnecte, (req, res) => {
-  res.json({ message: `Bonjour ${req.session.user.username}, tu es connectée` });
-});
+// MODIFIER LE PROFIL
+router.put('/profile', requireAuth, async (req, res) => {
+  try {
+    const { username, email, password } = req.body;
+    const id = req.session.user.id;
 
-router.get('/test-admin', estAdmin, (req, res) => {
-  res.json({ message: 'Bienvenue, administrateur' });
+    if (!username || !email) {
+      return res.status(400).json({ message: 'Nom et email obligatoires.' });
+    }
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ message: 'Adresse email invalide.' });
+    }
+
+    const [dup] = await db.query('SELECT id FROM users WHERE email = ? AND id <> ?', [email, id]);
+    if (dup.length > 0) {
+      return res.status(409).json({ message: 'Cet email est déjà utilisé.' });
+    }
+
+    if (password) {
+      if (password.length < 6) {
+        return res.status(400).json({ message: 'Mot de passe trop court (6 caractères minimum).' });
+      }
+      const hash = await bcrypt.hash(password, 10);
+      await db.query('UPDATE users SET username=?, email=?, password=? WHERE id=?',
+        [username.trim(), email.trim().toLowerCase(), hash, id]);
+    } else {
+      await db.query('UPDATE users SET username=?, email=? WHERE id=?',
+        [username.trim(), email.trim().toLowerCase(), id]);
+    }
+
+    req.session.user.username = username.trim();
+    req.session.user.email = email.trim().toLowerCase();
+    res.json({ message: 'Profil mis à jour.', user: req.session.user });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Erreur interne du serveur.' });
+  }
 });
 
 module.exports = router;

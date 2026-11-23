@@ -1,8 +1,6 @@
-// db.js : connexion MySQL partagée par les 3 membres
 require('dotenv').config();
-const mysql = require('mysql2');
+const mysql = require('mysql2/promise');
 
-// Un "pool" gère plusieurs connexions réutilisables
 const pool = mysql.createPool({
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
@@ -12,5 +10,4 @@ const pool = mysql.createPool({
   connectionLimit: 10
 });
 
-// On exporte la version "promise" pour utiliser async/await
-module.exports = pool.promise();
+module.exports = pool;
